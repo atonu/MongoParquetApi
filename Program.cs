@@ -7,6 +7,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<MongoService>();
 builder.Services.AddSingleton<ParquetService>();
 builder.Services.AddSingleton<ParquetSqlService>();
+builder.Services.AddSingleton<CsvService>();
+
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -115,5 +117,37 @@ app.MapGet("/api/parquet/query", async (
     var rows = await duck.QueryFileAsync(parquetPath, sql, ct);
     return Results.Ok(new { file = match, rows });
 });
+
+
+// POST /api/csv/export
+// Fetches filtered Mongo data, writes CSV, stores it via IFileStorage, returns name & location
+app.MapPost("/api/csv/export", async (
+    string? name,
+    double? minPrice,
+    double? maxPrice,
+    MongoService mongo,
+    CsvService csvService,
+    IFileStorage storage,
+    CancellationToken ct) =>
+{
+    var items = await mongo.GetItemsAsync(name, minPrice, maxPrice, ct);
+
+    var stream = await csvService.WriteItemsAsync(items, ct);
+    var stamp = DateTime.UtcNow; // creation instant
+    var fileName = $"items_{stamp:yyyyMMdd_HHmmss}_UTC.csv";
+    var location = await storage.SaveAsync(fileName, stream, ct);
+
+    return Results.Ok(new
+    {
+        file = fileName,
+        createdUtc = stamp,
+        location
+    });
+})
+.WithName("ExportCsv")
+.WithTags("CSV")
+.WithSummary("Export filtered items to a CSV file and store it.");
+//.WithOpenApi();
+
 
 app.Run();
